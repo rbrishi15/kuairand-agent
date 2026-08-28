@@ -1,0 +1,18 @@
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+
+# raw dataset — download via README, don't commit ~200MB of CSVs
+data/raw/*.csv
+data/splits/*
+
+# generated artifacts
+checkpoints/*.pt
+outputs/*.csv
+
+!data/raw/.gitkeep
+!data/splits/.gitkeep
+!checkpoints/.gitkeep
+!outputs/.gitkeep

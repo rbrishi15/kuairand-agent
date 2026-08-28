@@ -1,0 +1,28 @@
+# Bonus dataset. Playbook explicitly says to SKIP this one ("too large to
+# safely debug in remaining time") unless the team decides otherwise —
+# included only for structural completeness, not wired up to real data.
+dataset: kuairand_27k
+data_dir: data/raw_27k
+seed: 0
+
+splits:
+  train: [20220408, 20220421]
+  valid: [20220422, 20220428]
+  test:  [20220429, 20220508]
+
+model:
+  name: fm
+  k: 16
+  lr: 0.001
+  bs: 8192
+  epochs: 40
+  patience: 4
+
+convergence:
+  epsilon: 0.002
+  N: 3
+  max_iterations: 50
+  max_wallclock_hours: 6
+
+checkpoint_dir: checkpoints
+log_path: logs/run_log.jsonl

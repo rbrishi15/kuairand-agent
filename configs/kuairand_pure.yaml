@@ -1,0 +1,29 @@
+# [Rishi owns seed/split values — CLAUDE.md §0.4]
+# Task definition is fixed by the challenge. Do not edit split boundaries
+# without full-team sign-off; doing so silently invalidates every other
+# branch's results.
+dataset: kuairand_pure
+data_dir: data/raw
+seed: 0
+
+splits:
+  train: [20220408, 20220421]
+  valid: [20220422, 20220428]
+  test:  [20220429, 20220508]
+
+model:
+  name: fm
+  k: 16
+  lr: 0.001
+  bs: 8192
+  epochs: 40
+  patience: 4
+
+convergence:
+  epsilon: 0.002
+  N: 3
+  max_iterations: 50
+  max_wallclock_hours: 6
+
+checkpoint_dir: checkpoints
+log_path: logs/run_log.jsonl

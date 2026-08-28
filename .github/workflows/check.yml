@@ -1,0 +1,25 @@
+name: check
+on: [pull_request, push]
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: '.python-version'
+      - run: pip install -r requirements.txt
+      - name: Cache KuaiRand-Pure dataset
+        id: cache-data
+        uses: actions/cache@v4
+        with:
+          path: data/raw
+          key: kuairand-pure-v1
+      - name: Download dataset
+        if: steps.cache-data.outputs.cache-hit != 'true'
+        run: |
+          curl -L -o /tmp/KuaiRand-Pure.tar.gz https://zenodo.org/records/10439422/files/KuaiRand-Pure.tar.gz
+          tar xzf /tmp/KuaiRand-Pure.tar.gz -C /tmp
+          mkdir -p data/raw
+          cp /tmp/KuaiRand-Pure/data/*.csv data/raw/
+      - run: bash scripts/check.sh

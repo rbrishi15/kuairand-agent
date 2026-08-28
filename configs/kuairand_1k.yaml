@@ -1,0 +1,29 @@
+# Bonus dataset (playbook §Day 3: "if time remains, attempt KuaiRand-1K
+# with the same pipeline"). Not downloaded/wired up yet — data_dir is a
+# placeholder. Download KuaiRand-1K from https://kuairand.com and point
+# data_dir at its data/ folder before using this config.
+dataset: kuairand_1k
+data_dir: data/raw_1k
+seed: 0
+
+splits:
+  train: [20220408, 20220421]
+  valid: [20220422, 20220428]
+  test:  [20220429, 20220508]
+
+model:
+  name: fm
+  k: 16
+  lr: 0.001
+  bs: 8192
+  epochs: 40
+  patience: 4
+
+convergence:
+  epsilon: 0.002
+  N: 3
+  max_iterations: 50
+  max_wallclock_hours: 6
+
+checkpoint_dir: checkpoints
+log_path: logs/run_log.jsonl
