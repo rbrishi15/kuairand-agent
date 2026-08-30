@@ -16,8 +16,9 @@ import torch
 from src.config import load_config
 from src.data import load, encode, subsample_encoded
 from src.models.fm import run_fm
+from src.models.deepfm_mtl import run_deepfm_mtl
 
-MODEL_REGISTRY = {'fm'}  # extend as teammates add models (e.g. 'deepfm_mtl')
+MODEL_REGISTRY = {'fm', 'deepfm_mtl'}
 
 
 def train(config, smoke_test=False, verbose=True):
@@ -39,6 +40,10 @@ def train(config, smoke_test=False, verbose=True):
     if name == 'fm':
         model, metrics = run_fm(enc, dim, seed=config.get('seed', 0),
                                  verbose=verbose, **model_cfg)
+        state_dict = model.state_dict()
+    elif name == 'deepfm_mtl':
+        model, metrics = run_deepfm_mtl(enc, dim, seed=config.get('seed', 0),
+                                         verbose=verbose, **model_cfg)
         state_dict = model.state_dict()
     else:
         raise NotImplementedError(f"model '{name}' registered but no training path wired up")
