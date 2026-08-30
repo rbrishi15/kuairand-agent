@@ -1,7 +1,7 @@
 # kuairand-agent
 
 Autonomous ML research agent for the KuaiRand-Pure recommendation benchmark
-— NUS-SYNAPXE-IMDA AI Innovation Challenge 2026.
+— TikTok TechJam.
 
 Full spec: [`CLAUDE.md`](CLAUDE.md) (machine-actionable, source of truth for
 anything code/process-related) and `KuaiRand_Team_Playbook.docx`
