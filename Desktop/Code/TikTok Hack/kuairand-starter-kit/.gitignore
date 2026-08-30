@@ -1,0 +1,34 @@
+# ---- Dataset (download separately per README; ~194 MB, never commit) ----
+KuaiRand-Pure/
+KuaiRand-Pure*.tar.gz
+data/raw/
+data/splits/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# ---- Generated artifacts / experiment outputs ----
+*.npy
+# keep this one: small (~470 KB), reused by the ssl_* compare scripts
+!ssl_video_emb.npy
+*.pt
+checkpoints/
+submission*.csv
+outputs/
+*_out.txt
+loss_compare_out.txt
+bpr_*.txt
+
+# ---- Scratch ----
+nonsense.py
+
+# ---- OS / editor ----
+.DS_Store
+*.swp
+.idea/
+.vscode/
