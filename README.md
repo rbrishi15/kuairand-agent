@@ -268,6 +268,37 @@ averaging is worth about +0.0007 over any single run," which is a real,
 legitimate, low-risk thing to ship, just not the complementary-diversity
 story that would have been more interesting to report.
 
+## Resource summary
+
+Computed directly from `logs/run_log.jsonl` (its 25 entries are the
+complete outer-loop history for this project — CLAUDE.md §13's Definition
+of Done requires this be generated from the log, never hand-typed):
+
+| | |
+|---|---|
+| Iterations | 25 |
+| Total wall-clock | 2334.3s (≈0.65h) |
+| Tokens used | 0 input / 0 output — no `ANTHROPIC_API_KEY` was available during any of these iterations, so the LLM proposer (`--proposer llm`) never made a real billed call; its one logged attempt (iteration 25) is the credential-failure-and-fallback demo described above |
+| GPU-hours | 0 — every run was CPU-only (CLAUDE.md §3's CPU-code-path requirement); no GPU was used or required anywhere in this project |
+| Models covered | `fm`, `deepfm_mtl` |
+| Dataset | `kuairand_pure` |
+
+## Manual intervention count
+
+**19 of 25** logged iterations carry `manual_intervention: true`. These are
+the by-hand multi-seed sweeps (e.g. iterations 10-17, 20-24) — seeds run
+individually via `train.py --seed N` to separate real effects from noise,
+which is inherently a human decision ("run this exact config N more
+times"), not a hypothesis for the orchestrator's proposer to generate. This
+is expected given how this project's ablations were actually run, not a
+sign of the autonomous loop failing.
+
+**1** additional iteration (25) logged a real error — a missing
+`ANTHROPIC_API_KEY` for the LLM proposer — with `manual_intervention:
+false`, since the orchestrator's own fallback-to-grid recovery handled it
+without any human stepping in. See "LLM-driven hypothesis proposer" above
+for the full account of that one.
+
 ## Final submission
 
 `outputs/submission.csv` — generated via `src/submit.py`'s `--checkpoint`
