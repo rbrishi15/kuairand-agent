@@ -24,6 +24,15 @@ outputs/*.csv
 # straight from the repo instead of retraining ~35 minutes of ablations.
 checkpoints/smoke_test.pt
 
+# checkpoints_1k/ and outputs/submission_1k.csv are NOT covered by the
+# same "small enough for plain git" reasoning above: KuaiRand-1K's much
+# larger embedding table means the checkpoint alone is ~199MB and the
+# generated submission CSV is ~121MB, both over GitHub's 100MB hard
+# per-file limit -- a plain push would be rejected outright. Needs Git
+# LFS or an external release/attachment, not decided yet; regenerate
+# locally via configs/kuairand_1k_deepfm_mtl.yaml (see README).
+checkpoints_1k/
+
 !data/raw/.gitkeep
 !data/splits/.gitkeep
 !outputs/.gitkeep

@@ -371,6 +371,53 @@ with the rest of this README's theme: real but modest, not a headline win,
 and reported once rather than being used to pick among checkpoints after
 the fact.
 
+### Bonus: KuaiRand-1K
+
+Same pipeline, `configs/kuairand_1k_deepfm_mtl.yaml` (base DeepFMMTL, no
+IPS/BPR — both were tested and found to *not* transfer cleanly from
+Pure-tuned hyperparameters to 1K's larger scale during ablation, so the
+plain base config is the honest choice here, not a shortcut), single
+seed rather than Pure's 5-seed ensemble given the much larger per-run
+cost (1K's ~11.7M-row standard logs vs. Pure's ~1.4M):
+
+```bash
+python3 src/train.py --config configs/kuairand_1k_deepfm_mtl.yaml --seed 0
+python3 src/submit.py --make --config configs/kuairand_1k_deepfm_mtl.yaml \
+    --split test outputs/submission_1k.csv \
+    --checkpoint checkpoints_1k/deepfm_mtl_seed0.pt
+python3 src/submit.py --check --config configs/kuairand_1k_deepfm_mtl.yaml \
+    --split test outputs/submission_1k.csv
+```
+
+4,132,081 rows, passes `--check`:
+
+| | GAUC | nDCG@5 | primary |
+|---|---|---|---|
+| **This submission (1K, single-seed DeepFMMTL)** | **0.6738** | **0.6079** | **0.6408** |
+
+No official 1K baseline number is published to compare against (unlike
+Pure's 0.5946), and these raw magnitudes aren't comparable to Pure's
+anyway — 1K's much denser per-user interaction history makes within-user
+ranking structurally easier, not evidence of a better model. Only
+directional/relative findings from 1K testing are meaningful; see
+Limitations below.
+
+**Neither `checkpoints_1k/deepfm_mtl_seed0.pt` (~199MB) nor
+`outputs/submission_1k.csv` (~121MB) are committed to this repo** — both
+exceed GitHub's 100MB per-file limit and would be rejected on push. Both
+are exactly reproducible via the two commands above; a Git LFS setup or
+an external release attachment would be needed to actually distribute the
+binary files themselves, not yet decided.
+
+### Bonus: KuaiRand-27K
+
+Attempted, not completed. The archive (9.9GB) did not finish downloading
+within this project's time budget, and even a completed download would
+mean training on a dataset roughly 10x KuaiRand-Pure's row count on
+CPU-only hardware — consistent with the playbook's own Day-3 plan calling
+27K the one to skip if time is short ("too large to safely debug in
+remaining time"). No 27K results are reported.
+
 ## Submission format
 
 CSV, header + one row per evaluation-set row:
