@@ -99,12 +99,31 @@ class DeepFMMTL(nn.Module):
 
 
 def run_deepfm_mtl(enc, dim, embed_dim=16, num_fields=5, lr=0.001, epochs=40,
-                    bs=8192, patience=4, seed=0, verbose=True):
+                    bs=8192, patience=4, seed=0, verbose=True,
+                    sample_weight=None, seq_arrays=None, seq_kwargs=None):
     """Mirrors src/models/fm.py's run_fm() shape so train.py can dispatch to
     either symmetrically. CPU by default (CLAUDE.md §3: every model needs a
     CPU code path); uses CUDA only if available, never requires it.
     Primary-only for now — see module docstring for why aux heads aren't
     fed real targets yet.
+
+    [Rishi — integration wiring, CLAUDE.md Definition of Done: "Min's
+    sample_weight/seq_embedding hooks are actually used by Vidush's and
+    Nandit's code, not sitting unused"] Two optional args close that loop:
+
+      sample_weight: Vidush's IPS train-row weights
+        (src.features.propensity.estimate_propensity(...)['train']),
+        row-aligned to enc['train']. Threaded into DeepFMMTL.forward()'s
+        existing sample_weight kwarg every training step; valid/test are
+        always unweighted (evaluation must stay on the true distribution).
+      seq_arrays: {'train','valid','test': int64 (N, max_len) arrays} from
+        src.features.sequential.sequences_for_rows, row-aligned to enc[name].
+        When given, a SeqEncoder (src.models.seq_encoder) is constructed
+        from seq_kwargs (must include num_items) and trained *jointly* with
+        DeepFMMTL — its output feeds DeepFMMTL.forward()'s seq_embedding
+        kwarg every step, both forward and backward. Left on the returned
+        model as `.seq_encoder` (None if unused) so callers can save/load
+        its weights alongside DeepFMMTL's.
     """
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     torch.manual_seed(seed)
@@ -115,40 +134,68 @@ def run_deepfm_mtl(enc, dim, embed_dim=16, num_fields=5, lr=0.001, epochs=40,
     Xva_t = torch.from_numpy(Xva).long().to(device)
     Xte_t = torch.from_numpy(Xte).long().to(device)
 
-    model = DeepFMMTL(dim, embed_dim=embed_dim, num_fields=num_fields).to(device)
-    opt = torch.optim.Adam(model.parameters(), lr=lr)
+    w_t = None
+    if sample_weight is not None:
+        w_t = torch.from_numpy(np.asarray(sample_weight, dtype=np.float32)).to(device)
 
-    def predict(X_t, bs=200_000):
-        model.eval()
+    seq_encoder = None
+    Str_t = Sva_t = Ste_t = None
+    seq_dim = 0
+    if seq_arrays is not None:
+        from src.models.seq_encoder import SeqEncoder
+        if not seq_kwargs or 'num_items' not in seq_kwargs:
+            raise ValueError('seq_kwargs must include num_items when seq_arrays is given')
+        seq_encoder = SeqEncoder(**seq_kwargs).to(device)
+        seq_dim = seq_encoder.out_dim
+        Str_t = torch.from_numpy(seq_arrays['train']).to(device)
+        Sva_t = torch.from_numpy(seq_arrays['valid']).to(device)
+        Ste_t = torch.from_numpy(seq_arrays['test']).to(device)
+
+    model = DeepFMMTL(dim, embed_dim=embed_dim, num_fields=num_fields, seq_dim=seq_dim).to(device)
+    params = list(model.parameters()) + (list(seq_encoder.parameters()) if seq_encoder else [])
+    opt = torch.optim.Adam(params, lr=lr)
+
+    def _set_mode(training):
+        model.train(training)
+        if seq_encoder is not None:
+            seq_encoder.train(training)
+
+    def predict(X_t, S_t=None, bs=200_000):
+        _set_mode(False)
         out = []
         with torch.no_grad():
             for i in range(0, len(X_t), bs):
-                out.append(model(X_t[i:i + bs])['primary'].cpu().numpy())
+                se = seq_encoder(S_t[i:i + bs]) if seq_encoder is not None else None
+                out.append(model(X_t[i:i + bs], seq_embedding=se)['primary'].cpu().numpy())
         return np.concatenate(out)
 
-    best, best_state, bad = -1, None, 0
+    best, best_state, best_seq_state, bad = -1, None, None, 0
     n = len(ytr)
     for ep in range(1, epochs + 1):
-        model.train()
+        _set_mode(True)
         t0 = time.time()
         idx = torch.randperm(n, device=device)
         losses = []
         for i in range(0, n, bs):
             b = idx[i:i + bs]
-            out = model(Xtr_t[b])
+            se = seq_encoder(Str_t[b]) if seq_encoder is not None else None
+            wb = w_t[b] if w_t is not None else None
+            out = model(Xtr_t[b], sample_weight=wb, seq_embedding=se)
             loss = model.compute_loss(out, ytr_t[b])
             opt.zero_grad()
             loss.backward()
             opt.step()
             losses.append(loss.item())
 
-        va = evaluate(uva, yva, predict(Xva_t))
+        va = evaluate(uva, yva, predict(Xva_t, Sva_t))
         if verbose:
             print(f"  epoch {ep:2d} | loss {np.mean(losses):.4f} | valid GAUC {va['GAUC']:.4f} "
                   f"nDCG@5 {va['nDCG@5']:.4f} primary {va['primary']:.4f} | {time.time()-t0:.1f}s")
         if va['primary'] > best + 1e-5:
             best, bad = va['primary'], 0
             best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+            if seq_encoder is not None:
+                best_seq_state = {k: v.detach().clone() for k, v in seq_encoder.state_dict().items()}
         else:
             bad += 1
             if bad >= patience:
@@ -157,5 +204,15 @@ def run_deepfm_mtl(enc, dim, embed_dim=16, num_fields=5, lr=0.001, epochs=40,
                 break
 
     model.load_state_dict(best_state)
-    return model, {'valid': evaluate(uva, yva, predict(Xva_t)),
-                   'test': evaluate(ute, yte, predict(Xte_t))}
+    if seq_encoder is not None:
+        seq_encoder.load_state_dict(best_seq_state)
+    # NOT `model.seq_encoder = seq_encoder`: nn.Module.__setattr__ treats any
+    # nn.Module-valued attribute as a submodule to auto-register, which would
+    # silently fold seq_encoder's params into model.state_dict() under a
+    # "seq_encoder.*" prefix — then a fresh DeepFMMTL() (which never had
+    # .seq_encoder set) rejects those as unexpected keys on load_state_dict.
+    # object.__setattr__ bypasses that registration; this is a plain
+    # attribute for the caller's convenience, not a submodule of model.
+    object.__setattr__(model, 'seq_encoder', seq_encoder)
+    return model, {'valid': evaluate(uva, yva, predict(Xva_t, Sva_t)),
+                   'test': evaluate(ute, yte, predict(Xte_t, Ste_t))}

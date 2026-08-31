@@ -3,6 +3,8 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .DS_Store
+~$*.docx
+~$*.doc
 
 # raw dataset — download via README, don't commit ~200MB of CSVs
 data/raw/*.csv

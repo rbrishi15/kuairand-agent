@@ -98,13 +98,49 @@ against 0.8645, not 1.0.** Full detail in `baseline_scores.json`.
 ### Where headroom likely is, in priority order
 
 1. Pairwise/listwise loss instead of pointwise logloss (ranking-aligned
-   objective) — Min/Priority 1's multi-task lift plus this is the most
-   promising combination.
-2. User interaction sequences — completely unused today (Nandit, Priority 3).
-3. Multi-task auxiliary labels (`is_click`, `is_like`, `play_time_ms`, ...).
-4. Counterfactual watch-time modeling (Vidush's IPS work is adjacent to this).
-5. Model capacity (DeepFM/DCN/xDeepFM) — lower priority; capacity isn't the
-   bottleneck per the ablation above.
+   objective) — still open, most promising untried direction.
+2. Multi-task auxiliary labels (`is_click`, `is_like`, `play_time_ms`, ...) —
+   `DeepFMMTL` has the aux-head plumbing (`compute_loss`'s `aux_targets`)
+   but `src/data.py` doesn't expose those columns yet.
+3. Counterfactual watch-time modeling — IPS reweighting (below) is a step
+   toward this, not the full picture.
+
+Model capacity, user interaction sequences, and IPS debiasing have now
+actually been tried (see below) — see the results before assuming there's
+easy lift left in any of them.
+
+## Model variants tried
+
+`configs/kuairand_pure_deepfm_mtl*.yaml` — DeepFMMTL (Min, Priority 1) with
+Vidush's IPS weights and/or Nandit's sequence encoder optionally wired in
+via two model-config flags (`use_ips`, `use_seq`; both default false, see
+`src/train.py`'s module docstring for the full option list). Real full
+(non-smoke) runs on KuaiRand-Pure, seed 0:
+
+| Variant | Config | valid primary |
+|---|---|---|
+| FM (official baseline) | `kuairand_pure.yaml` | 0.6016 |
+| DeepFMMTL | `kuairand_pure_deepfm_mtl.yaml` | 0.6032 |
+| DeepFMMTL + IPS | `..._ips.yaml` | 0.6010 |
+| DeepFMMTL + sequences | `..._seq.yaml` | 0.6034 |
+| DeepFMMTL + IPS + sequences | `..._full.yaml` | see `logs/run_log.jsonl` |
+
+All four DeepFMMTL variants land within ~0.002 of each other — noise-level
+on a single seed, not yet a confirmed win over plain DeepFMMTL. Two
+non-obvious things worth knowing before re-running this ablation:
+
+- **IPS looking flat-to-slightly-worse here doesn't mean it's not working.**
+  `valid` is still drawn from the standard (biased) log, not the
+  random-exposure one — so IPS trades a bit of fit against *that* biased
+  metric for (hopefully) better generalization off the old policy's blind
+  spots, which this validation split can't directly measure. Vidush's
+  `propensity_report()` in `src/features/propensity.py` is the right tool
+  for checking whether the reweighting itself looks sane, independent of
+  whether it moves `valid primary`.
+- **The sequence encoder is the slow one** — a real (non-smoke) run takes
+  ~50s/epoch vs ~1s/epoch for plain DeepFMMTL, all in the GRU forward/backward
+  over padded sequences on CPU. Budget for that before running the seq or
+  full ablations again.
 
 ## Submission format
 
