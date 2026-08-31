@@ -47,6 +47,17 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Success messages below use non-ASCII (Chinese text, U+2713 checkmark);
+# Windows consoles default to a codepage (e.g. cp1252) that can't encode
+# them, crashing after all real validation has already succeeded. UTF-8
+# stdout is safe cross-platform and required by CLAUDE.md's Every-machine
+# reproducibility guarantee (Windows contributors couldn't otherwise ever
+# see this script report success).
+try:
+    sys.stdout.reconfigure(encoding='utf-8')
+except (AttributeError, ValueError):
+    pass
+
 from src.config import load_config
 from src.data import load, encode
 from src.evaluate import evaluate
