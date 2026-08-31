@@ -97,17 +97,19 @@ against 0.8645, not 1.0.** Full detail in `baseline_scores.json`.
 
 ### Where headroom likely is, in priority order
 
-1. Pairwise/listwise loss instead of pointwise logloss (ranking-aligned
-   objective) — still open, most promising untried direction.
-2. Multi-task auxiliary labels (`is_click`, `is_like`, `play_time_ms`, ...) —
+1. Multi-task auxiliary labels (`is_click`, `is_like`, `play_time_ms`, ...) —
    `DeepFMMTL` has the aux-head plumbing (`compute_loss`'s `aux_targets`)
    but `src/data.py` doesn't expose those columns yet.
-3. Counterfactual watch-time modeling — IPS reweighting (below) is a step
+2. Counterfactual watch-time modeling — IPS reweighting (below) is a step
    toward this, not the full picture.
+3. A hybrid pointwise + pairwise loss — BPR alone (below) underperforms
+   plain BCE, most likely because it trains on far fewer effective
+   examples per epoch; adding the pairwise term on top of BCE rather than
+   replacing it is the natural next thing to try, not yet attempted.
 
-Model capacity, user interaction sequences, and IPS debiasing have now
-actually been tried (see below) — see the results before assuming there's
-easy lift left in any of them.
+Model capacity, user interaction sequences, IPS debiasing, and pairwise
+ranking loss have now actually been tried (see below) — see the results
+before assuming there's easy lift left in any of them.
 
 ## Model variants tried
 
@@ -122,9 +124,10 @@ KuaiRand-Pure, multiple seeds each — mean ± population std:
 |---|---|---|
 | FM (official baseline, published) | `kuairand_pure.yaml` | 0.6016 (std 0.0008, n=5) |
 | DeepFMMTL | `kuairand_pure_deepfm_mtl.yaml` | **0.6033 ± 0.0003** (n=5) |
-| DeepFMMTL + IPS | `..._ips.yaml` | **0.6012 ± 0.0003** (n=5) |
+| DeepFMMTL + IPS | `..._ips.yaml` | 0.6012 ± 0.0003 (n=5) |
 | DeepFMMTL + sequences | `..._seq.yaml` | 0.6035 ± 0.0001 (n=2) |
 | DeepFMMTL + IPS + sequences | `..._full.yaml` | 0.6018 ± 0.0001 (n=2) |
+| DeepFMMTL + pairwise BPR | `..._bpr.yaml` | 0.6018 ± 0.0003 (n=5) |
 
 With enough seeds, this actually separates from noise: **base vs. +IPS is a
 real, reproducible ~0.002 gap** (~6× the combined std) — IPS is not just
@@ -133,8 +136,22 @@ that's not necessarily bad news. +sequences (n=2 so far) looks flat-to-
 slightly-better than base; +IPS+sequences lands almost exactly at the
 FM baseline. None of this is a confirmed win over plain DeepFMMTL yet —
 sequences and the combined variant still need 3+ more seeds each before
-trusting the (very small, n=2) gaps between them. Two non-obvious things
+trusting the (very small, n=2) gaps between them. Three non-obvious things
 worth knowing before extending this ablation:
+
+- **Pairwise BPR (`run_deepfm_mtl_bpr` in `src/models/deepfm_mtl.py`)
+  underperforms plain pointwise BCE, and it's not just noise** (~4.4× the
+  combined std over 5 seeds) — despite directly optimizing per-user
+  pairwise ordering, the same thing GAUC measures. It even loses on GAUC
+  itself, not just primary. Root cause, not yet fixed: BPR only trains on
+  `(pos, neg)` pairs, and `long_view=1` is the minority class here — its
+  default `pairs_per_epoch` (one pass over eligible positives) sees only
+  ~383K pairs/epoch versus pointwise's 1.14M rows, roughly a third of the
+  effective training signal per epoch, even though 92.7% of users are
+  individually eligible (have both classes). A hybrid loss (BCE + a BPR
+  term on top, not instead) is the natural next attempt — theoretical
+  alignment with the metric isn't enough on its own if the loss sees much
+  less data per step.
 
 - **IPS looking flat-to-slightly-worse here doesn't mean it's not working.**
   `valid` is still drawn from the standard (biased) log, not the

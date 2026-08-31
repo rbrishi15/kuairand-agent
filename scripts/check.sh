@@ -10,15 +10,18 @@
 # creates outputs/smoke_submission.csv.
 #
 # Also smoke-tests configs/kuairand_pure_deepfm_mtl_full.yaml (Min's model
-# with Vidush's IPS weights AND Nandit's sequence encoder both enabled) —
-# without this, CI only ever exercised the FM path and a plain merge could
-# silently break the actual integration between the three techniques.
+# with Vidush's IPS weights AND Nandit's sequence encoder both enabled) and
+# ..._bpr.yaml (pairwise BPR training) — without these, CI only ever
+# exercised the pointwise FM path and a merge could silently break the
+# actual integration between techniques, or the BPR training loop.
 set -euo pipefail
 
 python -m pytest tests/ -x
 python src/train.py --config configs/kuairand_pure.yaml --smoke-test
 python scripts/eval_checkpoint.py --checkpoint checkpoints/smoke_test.pt --split valid
 python src/train.py --config configs/kuairand_pure_deepfm_mtl_full.yaml --smoke-test
+python scripts/eval_checkpoint.py --checkpoint checkpoints/smoke_test.pt --split valid
+python src/train.py --config configs/kuairand_pure_deepfm_mtl_bpr.yaml --smoke-test
 python scripts/eval_checkpoint.py --checkpoint checkpoints/smoke_test.pt --split valid
 python src/submit.py --make  --config configs/kuairand_pure.yaml --split valid outputs/smoke_submission.csv
 python src/submit.py --check --config configs/kuairand_pure.yaml --split valid outputs/smoke_submission.csv
