@@ -20,6 +20,38 @@ anything code/process-related) and `KuaiRand_Team_Playbook.docx`
 Only edit files your role owns unless told otherwise. `main` is merge-only,
 reviewed by Rishi.
 
+### Team member contributions
+
+- **Rishi** — built the shared spine (`src/data.py`'s split/encode logic,
+  `agent/orchestrator.py`'s outer loop, `agent/convergence.py`), reproduced
+  the official FM baseline within noise, then integrated everyone else's
+  work: wired Vidush's IPS weights and Nandit's sequence encoder into
+  Min's `DeepFMMTL` hooks, built the off-policy validation harness against
+  the randomized-exposure log, implemented pairwise BPR training, the
+  LLM-driven hypothesis proposer, and ran the multi-seed sweeps that
+  separated real effects from noise.
+- **Min** — designed and implemented `DeepFMMTL` (shared embedding table +
+  FM second-order term + deep MLP tower + multi-task head plumbing), and
+  established the `sample_weight`/`seq_embedding` interface contract from
+  day 1 so Vidush and Nandit were never blocked waiting on a rewrite.
+- **Vidush** — built the IPS propensity estimation
+  (`src/features/propensity.py`): item-level exposure propensities from
+  KuaiRand-Pure's randomized-exposure log, Laplace-smoothed and clipped,
+  self-normalized to mean 1, with the safe-date cutoff derived dynamically
+  from the actual split boundaries rather than hardcoded. Also expanded
+  the LLM proposer's allowlist with real architecture/training knobs,
+  found and fixed a Windows console-encoding bug in `submit.py` that was
+  silently blocking `scripts/check.sh` from ever reporting success on a
+  non-UTF-8 console, and drove the bonus-dataset (KuaiRand-1K/-27K)
+  download, wiring, and evaluation.
+- **Nandit** — built the sequential features (per-user recent-interaction
+  history, `src/features/sequential.py`), the GRU sequence encoder
+  (`src/models/seq_encoder.py`), and the item2vec-style SSL pretraining
+  pretext task (`src/models/ssl_pretrain.py`).
+- **Sarthak** — built submission validation (`src/submit.py`) and
+  rank-average ensembling (`src/models/ensemble.py`), and wired real
+  checkpoint/ensemble loading into the final submission path.
+
 ## Setup
 
 ```bash
@@ -352,6 +384,70 @@ row_id,user_id,video_id,score
 (3.06% of test rows), so it can't be a primary key. `src/submit.py --check`
 rejects header mismatches, row-count mismatches, `row_id` gaps, misaligned
 `(user_id, video_id)`, and non-numeric/NaN/Inf scores.
+
+## Limitations & what we'd improve with more time
+
+Written honestly, not as a formality — most of these are already implied
+by results reported above, collected here in one place:
+
+- **No technique has beaten FM by more than noise, decisively.** The best
+  single number anywhere in this project (0.6040 valid, the 5-seed
+  DeepFMMTL ensemble) is +0.0024 over FM's published 0.6016 — real, but
+  small next to the seed-to-seed std every variant shows. Given more
+  time, the honest next step per the README's own headroom analysis is a
+  hybrid pointwise+pairwise loss (BPR alone underperforms, likely from
+  training on far fewer effective pairs per epoch — see "Model variants
+  tried") rather than another architecture sweep; capacity has been
+  checked twice now (embedding dim, then hidden-dims/dropout/weight-decay)
+  and isn't the bottleneck either time.
+- **IPS's counterfactual benefit is still genuinely unconfirmed.** The
+  off-policy check this project is proudest of (a real unbiased eval set
+  built from the randomized-exposure log, not just an assertion) came back
+  a 0.29x-of-noise gap over 5 seeds — not proof it helps, not proof it
+  doesn't. A logistic-regression propensity model over user/video/context
+  features (closer to the Zhao et al. framing that motivated this
+  technique) instead of the current item-level ratio estimator is the
+  natural next attempt, alongside more offpolicy seeds before trusting
+  either direction.
+- **Multi-task auxiliary labels were never wired in.** `DeepFMMTL` has the
+  aux-head plumbing (`compute_loss`'s `aux_targets`) but `src/data.py`
+  never loads `is_click`/`is_like`/`play_time_ms` — Priority 1's
+  multi-task story is architecturally ready but never actually multi-task
+  in any run reported here.
+- **Video-level engagement statistics
+  (`video_features_statistic_pure.csv`, 51 columns — show/play/like/
+  comment/follow/share counts) are never read anywhere in the pipeline.**
+  An earlier ablation of "extra feature domains" found no lift, but that
+  test's exact methodology (continuous vs. bucketed-into-IDs, aggregate
+  vs. stratified by video train-frequency) isn't fully known from the
+  one-line note it's recorded in — a rare-video-stratified retry with
+  continuous features (not more categorical IDs) is a real open question,
+  not a settled one, and is a lower priority than the two items above
+  mainly because it requires new plumbing DeepFMMTL doesn't have yet.
+- **Bonus benchmarks are partially attempted, not fully matched to
+  Pure's rigor.** KuaiRand-1K was run and submitted (single seed, not the
+  5-seed sweep Pure got — the dataset is ~5x bigger by row count despite
+  fewer users, and hyperparameters tuned on Pure (e.g. BPR's learning
+  rate) were found NOT to transfer cleanly to 1K's scale during testing,
+  a genuine generalization-risk finding in its own right, not just an
+  excuse). KuaiRand-27K (9.9GB) was attempted but not completed in the
+  project's time budget — consistent with the playbook's own Day-3 plan
+  to treat it as lowest priority ("skip 27k — too large to safely debug
+  in remaining time").
+- **`run_log.jsonl`'s `code_diff_ref` field is null in every entry.** The
+  schema has always had this field, but nothing in this project's tooling
+  ever populated it with an actual commit/diff reference — git history is
+  the real record of what changed each iteration, but it's not
+  cross-linked from the log itself. Wiring `code_diff_ref` to the actual
+  commit SHA active at iteration time (via a git hook or orchestrator-side
+  lookup) is a small, concrete fix that just never got done.
+- **The LLM proposer has never run for real.** `agent/llm_hypothesis.py`
+  is fully implemented and tested (fake-client unit tests, 13 passing),
+  and it hit and correctly recovered from one live credential failure —
+  but no `ANTHROPIC_API_KEY` was available in the environment this
+  project was built in, so there's no real "LLM-chosen experiments vs.
+  the grid" comparison to report, only a robustness demonstration. That
+  comparison is the most interesting unrun experiment in the repo.
 
 ## Repo layout
 
