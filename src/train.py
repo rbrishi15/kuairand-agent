@@ -132,8 +132,12 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--config', required=True)
     ap.add_argument('--smoke-test', action='store_true')
+    ap.add_argument('--seed', type=int, default=None,
+                     help='override config["seed"], e.g. for a multi-seed sweep')
     a = ap.parse_args()
     cfg = load_config(a.config)
+    if a.seed is not None:
+        cfg['seed'] = a.seed
     result = train(cfg, smoke_test=a.smoke_test)
     print(f"checkpoint: {result['checkpoint_path']}")
     v = result['val_metrics']

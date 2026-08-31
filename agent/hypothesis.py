@@ -37,6 +37,16 @@ DEEPFM_GRID = (
     + [{'seed': 0, 'use_seq': True}]
     + [{'seed': 0, 'use_ips': True, 'use_seq': True}]
 )
+# Note: Rishi later ran a fuller multi-seed sweep by hand (5 seeds each for
+# base/+IPS, 2 for +seq/+both — logs/run_log.jsonl iterations 10-19-ish) to
+# tell noise from signal, since n=1 per variant above was barely past FM's
+# own documented std. That sweep is *not* reflected in this grid (index-based
+# proposing can't retroactively reconcile ad-hoc runs without an
+# undocumented log field — see the module docstring). A future orchestrator
+# run against deepfm_mtl.yaml will hit "grid exhausted" immediately, which
+# is safe but uninteresting; extend this grid with genuinely new ideas
+# (more seq/full seeds, new hyperparameters) rather than expecting it to
+# resume where the manual sweep left off.
 
 GRID_BY_MODEL = {'fm': FM_GRID, 'deepfm_mtl': DEEPFM_GRID}
 

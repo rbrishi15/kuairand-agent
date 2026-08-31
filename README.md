@@ -114,20 +114,27 @@ easy lift left in any of them.
 `configs/kuairand_pure_deepfm_mtl*.yaml` — DeepFMMTL (Min, Priority 1) with
 Vidush's IPS weights and/or Nandit's sequence encoder optionally wired in
 via two model-config flags (`use_ips`, `use_seq`; both default false, see
-`src/train.py`'s module docstring for the full option list). Real full
-(non-smoke) runs on KuaiRand-Pure, seed 0:
+`src/train.py`'s module docstring for the full option list; `--seed`
+overrides `config['seed']` for sweeping). Real (non-smoke) runs on
+KuaiRand-Pure, multiple seeds each — mean ± population std:
 
-| Variant | Config | valid primary |
+| Variant | Config | valid primary (n seeds) |
 |---|---|---|
-| FM (official baseline) | `kuairand_pure.yaml` | 0.6016 |
-| DeepFMMTL | `kuairand_pure_deepfm_mtl.yaml` | 0.6032 |
-| DeepFMMTL + IPS | `..._ips.yaml` | 0.6010 |
-| DeepFMMTL + sequences | `..._seq.yaml` | 0.6034 |
-| DeepFMMTL + IPS + sequences | `..._full.yaml` | see `logs/run_log.jsonl` |
+| FM (official baseline, published) | `kuairand_pure.yaml` | 0.6016 (std 0.0008, n=5) |
+| DeepFMMTL | `kuairand_pure_deepfm_mtl.yaml` | **0.6033 ± 0.0003** (n=5) |
+| DeepFMMTL + IPS | `..._ips.yaml` | **0.6012 ± 0.0003** (n=5) |
+| DeepFMMTL + sequences | `..._seq.yaml` | 0.6035 ± 0.0001 (n=2) |
+| DeepFMMTL + IPS + sequences | `..._full.yaml` | 0.6018 ± 0.0001 (n=2) |
 
-All four DeepFMMTL variants land within ~0.002 of each other — noise-level
-on a single seed, not yet a confirmed win over plain DeepFMMTL. Two
-non-obvious things worth knowing before re-running this ablation:
+With enough seeds, this actually separates from noise: **base vs. +IPS is a
+real, reproducible ~0.002 gap** (~6× the combined std) — IPS is not just
+flat-line noise, it measurably *costs* `valid primary`. See below for why
+that's not necessarily bad news. +sequences (n=2 so far) looks flat-to-
+slightly-better than base; +IPS+sequences lands almost exactly at the
+FM baseline. None of this is a confirmed win over plain DeepFMMTL yet —
+sequences and the combined variant still need 3+ more seeds each before
+trusting the (very small, n=2) gaps between them. Two non-obvious things
+worth knowing before extending this ablation:
 
 - **IPS looking flat-to-slightly-worse here doesn't mean it's not working.**
   `valid` is still drawn from the standard (biased) log, not the
