@@ -39,8 +39,22 @@ ALLOWED_OVERRIDES = {
         'seq_embed_dim': int,
         'seq_hidden_dim': int,
         'pairs_per_epoch': int,
+        'epochs': int,
+        'bs': int,
+        'patience': int,
+        'dropout': float,
+        'weight_decay': float,
+        'hidden_dims': 'dims',    # deep-tower layer sizes, see _validate_overrides
+        'ips_alpha': float,       # only meaningful alongside use_ips=true
     },
 }
+# aux_weight is deliberately NOT here: compute_loss's aux_targets is always
+# None in both training paths today (no is_click/is_like/play_time_ms labels
+# wired in yet, per src/models/deepfm_mtl.py's module docstring), so it's a
+# dead knob that would waste iterations if the LLM tuned it.
+
+_DIMS_MIN_LAYERS, _DIMS_MAX_LAYERS = 1, 4
+_DIMS_MIN_UNITS, _DIMS_MAX_UNITS = 4, 512
 
 SYSTEM_PROMPT = """You are choosing the next hyperparameter configuration to \
 try for a recommendation model, given prior experiment results. You may \
@@ -63,9 +77,16 @@ Rules:
 """
 
 
+def _describe_spec(spec):
+    if spec == 'dims':
+        return (f'list of {_DIMS_MIN_LAYERS}-{_DIMS_MAX_LAYERS} ints, each '
+                f'{_DIMS_MIN_UNITS}-{_DIMS_MAX_UNITS} (deep tower layer sizes, e.g. [64, 32])')
+    return spec
+
+
 def _format_allowed(model_name):
     allowed = ALLOWED_OVERRIDES.get(model_name, {})
-    return '\n'.join(f'  - {k}: {v}' for k, v in allowed.items())
+    return '\n'.join(f'  - {k}: {_describe_spec(v)}' for k, v in allowed.items())
 
 
 def _format_history(history):
@@ -88,7 +109,14 @@ def _validate_overrides(overrides, model_name):
             raise ValueError(f"LLM proposed disallowed key '{k}' for model '{model_name}' "
                               f"(allowed: {sorted(allowed)})")
         spec = allowed[k]
-        if isinstance(spec, tuple):
+        if spec == 'dims':
+            if (not isinstance(v, list) or not (_DIMS_MIN_LAYERS <= len(v) <= _DIMS_MAX_LAYERS)
+                    or not all(isinstance(d, int) and not isinstance(d, bool)
+                               and _DIMS_MIN_UNITS <= d <= _DIMS_MAX_UNITS for d in v)):
+                raise ValueError(f"'{k}'={v!r} must be a list of {_DIMS_MIN_LAYERS}-{_DIMS_MAX_LAYERS} "
+                                  f"ints, each {_DIMS_MIN_UNITS}-{_DIMS_MAX_UNITS}")
+            v = tuple(v)
+        elif isinstance(spec, tuple):
             if v not in spec:
                 raise ValueError(f"'{k}'={v!r} not one of {spec}")
         elif spec is bool:
