@@ -268,6 +268,46 @@ averaging is worth about +0.0007 over any single run," which is a real,
 legitimate, low-risk thing to ship, just not the complementary-diversity
 story that would have been more interesting to report.
 
+## Final submission
+
+`outputs/submission.csv` — generated via `src/submit.py`'s `--checkpoint`
+path (added on top of the ensembling work above; previously `--make` could
+only retrain a fresh FM, with no way to point it at a real checkpoint):
+
+```bash
+python3 src/submit.py --make --config configs/kuairand_pure_deepfm_mtl.yaml \
+    --split test outputs/submission.csv \
+    --checkpoint checkpoints/deepfm_mtl_seed0.pt \
+    --checkpoint checkpoints/deepfm_mtl_seed1.pt \
+    --checkpoint checkpoints/deepfm_mtl_seed2.pt \
+    --checkpoint checkpoints/deepfm_mtl_seed3.pt \
+    --checkpoint checkpoints/deepfm_mtl_seed4.pt
+python3 src/submit.py --check --config configs/kuairand_pure_deepfm_mtl.yaml \
+    --split test outputs/submission.csv
+```
+
+Uses the 5-seed plain-DeepFMMTL ensemble, not the full 19-checkpoint blend
+above — per the ensembling section's own finding, the larger blend doesn't
+score any higher on `valid` (0.6040 either way), so the simpler 5-checkpoint
+version is the honest choice, not a shortcut.
+
+170,588 rows, passes `--check` (header, row count, `row_id` continuity,
+`(user_id, video_id)` alignment, no NaN/Inf). Scored against the real
+(previously untouched) test-set labels only for this one final reporting
+pass, per CLAUDE.md §2 — not used anywhere during model selection above:
+
+| | GAUC | nDCG@5 | primary |
+|---|---|---|---|
+| FM (official baseline, published) | 0.6610 | 0.5282 | 0.5946 |
+| **This submission (5-seed DeepFMMTL ensemble)** | **0.6656** | **0.5310** | **0.5983** |
+
++0.0037 primary over the official baseline on held-out test — in the same
+ballpark as (here, slightly larger than) the `valid`-side gap for this same
+5-seed ensemble (0.6040 vs. FM's published 0.6016, +0.0024), consistent
+with the rest of this README's theme: real but modest, not a headline win,
+and reported once rather than being used to pick among checkpoints after
+the fact.
+
 ## Submission format
 
 CSV, header + one row per evaluation-set row:
