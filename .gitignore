@@ -8,6 +8,10 @@ __pycache__/
 
 # raw dataset — download via README, don't commit ~200MB of CSVs
 data/raw/*.csv
+# bonus datasets (playbook Day 3: KuaiRand-1K/-27K, ~1.2GB / ~10GB of CSVs
+# renamed to the _pure filenames src/data.py expects) — never commit these
+data/raw_1k/*.csv
+data/raw_27k/*.csv
 data/splits/*
 
 # generated artifacts
