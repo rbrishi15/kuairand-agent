@@ -237,6 +237,37 @@ report — that requires a key someone actually has. What **is** verified:
 Once a key is available: rerun the same command and diff what the LLM
 actually proposes against `agent/hypothesis.py`'s grid.
 
+## Ensembling (Priority 5)
+
+`src/models/ensemble.py`'s `ensemble_predict()` blends any mix of
+checkpoints via **rank-average**: each checkpoint's raw score is converted
+to a within-user percentile rank before blending (`scripts/eval_ensemble.py`
+is the CLI), since FM's and DeepFMMTL's raw scores aren't on comparable
+scales and only within-user ordering is ever measured. Weight per
+checkpoint, not per technique, by default — pass explicit `--weight` flags
+to give each technique equal say regardless of how many seeds it has.
+
+**Result, and the important caveat that comes with it:**
+
+| Ensemble | valid primary |
+|---|---|
+| DeepFMMTL, 5 seeds averaged (no other technique) | **0.6040** |
+| DeepFMMTL + sequences, 2 seeds averaged (no other technique) | 0.6038 |
+| DeepFMMTL (5 seeds) + sequences (2 seeds), 50/50 by technique | 0.6040 |
+| All 5 techniques (19 checkpoints), weighted equally per technique | 0.6040 |
+
+This beats every individual single-seed number reported anywhere above
+(best single run was 0.6040 too, coincidentally, but the *mean* single-seed
+numbers were 0.6032-0.6035). **The gain is pure variance reduction from
+averaging multiple seeds, not complementary diversity between
+techniques** — base-seeds-alone already hits the same 0.6040 that
+combining base+sequences does, and throwing in IPS/BPR/full on top changes
+nothing further. Don't oversell this as "ensembling combined diverse
+signals" — the honest story is "training the same model 5 times and
+averaging is worth about +0.0007 over any single run," which is a real,
+legitimate, low-risk thing to ship, just not the complementary-diversity
+story that would have been more interesting to report.
+
 ## Submission format
 
 CSV, header + one row per evaluation-set row:
