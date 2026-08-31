@@ -47,7 +47,7 @@ def load(config):
     return out
 
 
-def subsample_encoded(enc, n=5000, seed=0):
+def subsample_encoded(enc, n=5000, seed=0, extra=None):
     """Deterministic small slice of each split's *encoded* arrays, for
     --smoke-test runs only. Subsampling happens after encode(), not before:
     encode()'s vocab/dim always derive from the full train split, so a
@@ -55,15 +55,31 @@ def subsample_encoded(enc, n=5000, seed=0):
     identical to a full run's — scripts/eval_checkpoint.py re-encodes from
     scratch and must land on the same ids. Never used for a reported/logged
     score.
+
+    `extra`: optional {split_name: {key: array-like row-aligned to
+    enc[split_name]}} — e.g. Vidush's IPS sample_weight (train only) or
+    Nandit's sequence-id arrays (all splits). Subsampled with the exact same
+    indices as enc, so these side-arrays stay row-aligned with what's
+    returned. When given, returns (enc_out, extra_out) instead of just
+    enc_out.
     """
     rng = np.random.default_rng(seed)
     out = {}
+    out_extra = {} if extra is not None else None
     for name, (X, y, users) in enc.items():
         if len(y) <= n:
+            idx = None
             out[name] = (X, y, users)
         else:
             idx = rng.choice(len(y), size=n, replace=False)
             out[name] = (X[idx], y[idx], [users[i] for i in idx])
+        if extra is not None and name in extra:
+            if idx is None:
+                out_extra[name] = extra[name]
+            else:
+                out_extra[name] = {k: v[idx] for k, v in extra[name].items()}
+    if extra is not None:
+        return out, out_extra
     return out
 
 
