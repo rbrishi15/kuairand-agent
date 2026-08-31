@@ -6,6 +6,17 @@ only -> append one log entry (exact schema, §7) -> check convergence ->
 loop or stop. A failure inside any step is caught, logged with a recovery
 action, and the loop continues rather than halting — CLAUDE.md grades this
 as Robustness, not "never fails."
+
+--proposer {grid,llm} picks how each iteration's hypothesis gets chosen:
+  grid (default): agent/hypothesis.py's deterministic per-model grid — no
+                   API key, no cost, always available.
+  llm: agent/llm_hypothesis.py — an actual Claude API call reasons over the
+       real run history and picks the next config from a fixed, validated
+       allowlist (never writes or executes code). Requires
+       ANTHROPIC_API_KEY. If the call or its response is invalid, that's
+       treated the same as any other iteration failure (§6): logged with
+       an error + recovery action, and the loop falls back to the grid
+       proposer for that one iteration rather than halting.
 """
 import argparse
 import copy
@@ -57,7 +68,22 @@ def apply_overrides(config, overrides):
     return cfg
 
 
-def run(config_path, role=DEFAULT_ROLE, max_iterations_override=None):
+def _propose(proposer, relevant, config):
+    """Returns (hyp, proposer_error). proposer_error is None on success;
+    on llm failure, falls back to the grid proposer for this iteration
+    rather than halting (CLAUDE.md §6: fail gracefully, keep going).
+    """
+    if proposer != 'llm':
+        return propose(len(relevant), config), None
+    try:
+        from agent.llm_hypothesis import propose_llm
+        return propose_llm(relevant, config), None
+    except Exception as e:
+        proposer_error = f"llm proposer failed: {type(e).__name__}: {e}"
+        return propose(len(relevant), config), proposer_error
+
+
+def run(config_path, role=DEFAULT_ROLE, max_iterations_override=None, proposer='grid'):
     config = load_config(config_path)
     log_path = config.get('log_path', 'logs/run_log.jsonl')
     model_name = config['model']['name']
@@ -79,7 +105,7 @@ def run(config_path, role=DEFAULT_ROLE, max_iterations_override=None):
     last_good_metrics = relevant[-1]['metrics'] if relevant and relevant[-1].get('metrics') else None
 
     while True:
-        hyp = propose(len(relevant), config)
+        hyp, proposer_error = _propose(proposer, relevant, config)
         cfg_i = apply_overrides(config, hyp['overrides'])
         t0 = time.time()
         error, recovery, metrics = None, None, None
@@ -90,6 +116,11 @@ def run(config_path, role=DEFAULT_ROLE, max_iterations_override=None):
             error = f"{type(e).__name__}: {e}"
             recovery = 'skipped iteration, reverted to last-known-good config'
             metrics = last_good_metrics
+
+        if proposer_error:
+            error = f"{proposer_error}; {error}" if error else proposer_error
+            recovery = (f"fell back to grid proposer for this iteration; {recovery}"
+                        if recovery else 'fell back to grid proposer for this iteration')
 
         prev_best = tracker.best if tracker.best > -1 else None
         entry = {
@@ -106,7 +137,7 @@ def run(config_path, role=DEFAULT_ROLE, max_iterations_override=None):
             'recovery_action': recovery,
             'manual_intervention': False,
             'wall_clock_sec': round(time.time() - t0, 1),
-            'tokens_used': {'input': 0, 'output': 0},
+            'tokens_used': hyp.get('tokens_used', {'input': 0, 'output': 0}),
         }
         append_log(log_path, entry)
         full_history.append(entry)
@@ -131,5 +162,6 @@ if __name__ == '__main__':
     ap.add_argument('--config', required=True)
     ap.add_argument('--role', default=DEFAULT_ROLE)
     ap.add_argument('--max-iterations', type=int, default=None)
+    ap.add_argument('--proposer', default='grid', choices=['grid', 'llm'])
     a = ap.parse_args()
-    run(a.config, role=a.role, max_iterations_override=a.max_iterations)
+    run(a.config, role=a.role, max_iterations_override=a.max_iterations, proposer=a.proposer)

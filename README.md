@@ -200,6 +200,43 @@ different label base rate under random exposure — only the *relative*
 ordering between variants, evaluated on the same offpolicy set, is
 meaningful.
 
+## LLM-driven hypothesis proposer (`--proposer llm`)
+
+`agent/orchestrator.py --proposer llm` uses `agent/llm_hypothesis.py`
+instead of the deterministic grid: a Claude API call reasons over the real
+run history and picks the next experiment. The safety boundary is
+deliberate and narrow — the LLM **chooses a value for a fixed, validated
+set of existing config keys** (`ALLOWED_OVERRIDES` in that file); it never
+writes or executes code, never sees a file path, never touches
+`src/data.py`'s split logic or `src/evaluate.py`. This is the scaled-down,
+actually-safe slice of the "AIDE-style" autonomous-agent idea — real
+reasoning over real infrastructure, without the risk surface of an LLM
+generating and running arbitrary training code (a much bigger, riskier
+project not attempted here).
+
+**Honest status: built and tested, not yet demonstrable end-to-end.** No
+`ANTHROPIC_API_KEY` was available in the environment this was built in, so
+there's no real comparison of "LLM-chosen experiments vs. the grid" to
+report — that requires a key someone actually has. What **is** verified:
+
+- `tests/test_llm_hypothesis.py` (8 tests, fake client, no API key needed)
+  — a malformed response, a disallowed key, a wrong type, or an
+  out-of-enum value are all rejected, never silently accepted.
+- `tests/test_orchestrator_proposer.py` — the orchestrator falls back to
+  the grid proposer on any proposer failure rather than halting.
+- **A real, live run** (`python agent/orchestrator.py --config
+  configs/kuairand_pure_deepfm_mtl.yaml --proposer llm`, iteration 25 in
+  `logs/run_log.jsonl`) actually hit the missing-credentials error live,
+  logged the real exception text, fell back to the grid proposer, and
+  completed the iteration normally — `manual_intervention: false`,
+  correctly, since nothing about that recovery needed a human. That's a
+  genuine (if modest) demonstration of the Robustness criterion CLAUDE.md
+  §6 cares about: not "never fails," but "fails gracefully and keeps
+  going," including for the proposer itself, not just training.
+
+Once a key is available: rerun the same command and diff what the LLM
+actually proposes against `agent/hypothesis.py`'s grid.
+
 ## Submission format
 
 CSV, header + one row per evaluation-set row:
