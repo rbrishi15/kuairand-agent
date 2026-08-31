@@ -216,3 +216,169 @@ def run_deepfm_mtl(enc, dim, embed_dim=16, num_fields=5, lr=0.001, epochs=40,
     object.__setattr__(model, 'seq_encoder', seq_encoder)
     return model, {'valid': evaluate(uva, yva, predict(Xva_t, Sva_t)),
                    'test': evaluate(ute, yte, predict(Xte_t, Ste_t))}
+
+
+def _build_bpr_index(y, users):
+    """Group train row indices by user into positive/negative arrays,
+    keeping only users with at least one of each (mirrors evaluate()'s own
+    GAUC exclusion rule: 0 < npos < len(user's rows) — a user with only one
+    class can't form a pair either way).
+
+    Returns (all_pos_idx, all_pos_code, neg_by_code):
+      all_pos_idx  : int64 array, every eligible positive row's index
+      all_pos_code : int64 array, same length, which eligible-user each
+                     entry in all_pos_idx belongs to (0..num_eligible-1)
+      neg_by_code  : {code: int64 array of that user's negative row indices}
+    """
+    from collections import defaultdict
+    pos_by_user, neg_by_user = defaultdict(list), defaultdict(list)
+    for i, (u, yy) in enumerate(zip(users, y)):
+        (pos_by_user if yy > 0 else neg_by_user)[u].append(i)
+    eligible = [u for u in pos_by_user if u in neg_by_user]
+    if not eligible:
+        raise ValueError('no train users have both a positive and a negative impression')
+
+    all_pos_idx, all_pos_code, neg_by_code = [], [], {}
+    for code, u in enumerate(eligible):
+        all_pos_idx.extend(pos_by_user[u])
+        all_pos_code.extend([code] * len(pos_by_user[u]))
+        neg_by_code[code] = np.array(neg_by_user[u], dtype=np.int64)
+    return (np.array(all_pos_idx, dtype=np.int64),
+            np.array(all_pos_code, dtype=np.int64), neg_by_code)
+
+
+def _sample_bpr_pairs(all_pos_idx, all_pos_code, neg_by_code, n_pairs, rng):
+    """One epoch's (pos_idx, neg_idx) arrays: n_pairs positives sampled
+    uniformly from all eligible positives, each paired with a fresh random
+    negative from the *same* user. Vectorized per unique sampled user
+    (not per pair) — with ~10-30k eligible users on KuaiRand-Pure this is
+    a small Python loop regardless of how large n_pairs is.
+    """
+    sel = rng.integers(0, len(all_pos_idx), size=n_pairs)
+    pos_idx = all_pos_idx[sel]
+    codes = all_pos_code[sel]
+    neg_idx = np.empty(n_pairs, dtype=np.int64)
+
+    order = np.argsort(codes, kind='stable')
+    sorted_codes = codes[order]
+    unique_codes, start = np.unique(sorted_codes, return_index=True)
+    start = np.append(start, n_pairs)
+    for k in range(len(unique_codes)):
+        lo, hi = start[k], start[k + 1]
+        slots = order[lo:hi]
+        negs = neg_by_code[unique_codes[k]]
+        neg_idx[slots] = negs[rng.integers(0, len(negs), size=len(slots))]
+    return pos_idx, neg_idx
+
+
+def run_deepfm_mtl_bpr(enc, dim, embed_dim=16, num_fields=5, lr=0.001, epochs=40,
+                        pairs_per_epoch=None, bs=8192, patience=4, seed=0, verbose=True,
+                        seq_arrays=None, seq_kwargs=None):
+    """BPR pairwise variant of run_deepfm_mtl (README "headroom" idea #1:
+    pointwise BCE doesn't match GAUC/nDCG, which are ranking metrics). For
+    each user with at least one positive AND one negative train impression,
+    sample (pos, neg) pairs and train on -log(sigmoid(score_pos - score_neg))
+    -- directly optimizes the same per-user pairwise ordering GAUC measures,
+    instead of an independent per-row classification loss.
+
+    Users with only one class contribute no pairs and are silently skipped
+    (see _build_bpr_index) -- exactly the same exclusion GAUC itself applies.
+
+    Scope, deliberately: no sample_weight support here. Pairwise IPS
+    reweighting (reweight by which side of the pair? both? geometric mean?)
+    is a real design question on its own, not attempted in this first cut --
+    train.py raises rather than silently combining use_ips with loss=bpr.
+    seq_embedding IS supported (same per-row lookup as the pointwise path,
+    just applied to both the pos and neg batch each step).
+
+    pairs_per_epoch defaults to the number of eligible positive rows -- each
+    gets sampled ~once per epoch, paired with a fresh random negative from
+    the same user.
+    """
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    torch.manual_seed(seed)
+    rng = np.random.default_rng(seed)
+
+    Xtr, ytr, utr = enc['train']; Xva, yva, uva = enc['valid']; Xte, yte, ute = enc['test']
+    all_pos_idx, all_pos_code, neg_by_code = _build_bpr_index(ytr, utr)
+    n_pairs = pairs_per_epoch or len(all_pos_idx)
+
+    Xtr_t = torch.from_numpy(Xtr).long().to(device)
+    Xva_t = torch.from_numpy(Xva).long().to(device)
+    Xte_t = torch.from_numpy(Xte).long().to(device)
+
+    seq_encoder = None
+    Str_t = Sva_t = Ste_t = None
+    seq_dim = 0
+    if seq_arrays is not None:
+        from src.models.seq_encoder import SeqEncoder
+        if not seq_kwargs or 'num_items' not in seq_kwargs:
+            raise ValueError('seq_kwargs must include num_items when seq_arrays is given')
+        seq_encoder = SeqEncoder(**seq_kwargs).to(device)
+        seq_dim = seq_encoder.out_dim
+        Str_t = torch.from_numpy(seq_arrays['train']).to(device)
+        Sva_t = torch.from_numpy(seq_arrays['valid']).to(device)
+        Ste_t = torch.from_numpy(seq_arrays['test']).to(device)
+
+    model = DeepFMMTL(dim, embed_dim=embed_dim, num_fields=num_fields, seq_dim=seq_dim).to(device)
+    params = list(model.parameters()) + (list(seq_encoder.parameters()) if seq_encoder else [])
+    opt = torch.optim.Adam(params, lr=lr)
+
+    def _set_mode(training):
+        model.train(training)
+        if seq_encoder is not None:
+            seq_encoder.train(training)
+
+    def predict(X_t, S_t=None, bs=200_000):
+        _set_mode(False)
+        out = []
+        with torch.no_grad():
+            for i in range(0, len(X_t), bs):
+                se = seq_encoder(S_t[i:i + bs]) if seq_encoder is not None else None
+                out.append(model(X_t[i:i + bs], seq_embedding=se)['primary'].cpu().numpy())
+        return np.concatenate(out)
+
+    best, best_state, best_seq_state, bad = -1, None, None, 0
+    for ep in range(1, epochs + 1):
+        _set_mode(True)
+        t0 = time.time()
+        pos_idx, neg_idx = _sample_bpr_pairs(all_pos_idx, all_pos_code, neg_by_code, n_pairs, rng)
+        order = rng.permutation(n_pairs)
+        pos_idx, neg_idx = pos_idx[order], neg_idx[order]
+
+        losses = []
+        for i in range(0, n_pairs, bs):
+            pb = torch.from_numpy(pos_idx[i:i + bs]).to(device)
+            nb = torch.from_numpy(neg_idx[i:i + bs]).to(device)
+            se_pos = seq_encoder(Str_t[pb]) if seq_encoder is not None else None
+            se_neg = seq_encoder(Str_t[nb]) if seq_encoder is not None else None
+            s_pos = model(Xtr_t[pb], seq_embedding=se_pos)['primary']
+            s_neg = model(Xtr_t[nb], seq_embedding=se_neg)['primary']
+            loss = -F.logsigmoid(s_pos - s_neg).mean()
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+            losses.append(loss.item())
+
+        va = evaluate(uva, yva, predict(Xva_t, Sva_t))
+        if verbose:
+            print(f"  epoch {ep:2d} | bpr_loss {np.mean(losses):.4f} | valid GAUC {va['GAUC']:.4f} "
+                  f"nDCG@5 {va['nDCG@5']:.4f} primary {va['primary']:.4f} | {time.time()-t0:.1f}s")
+        if va['primary'] > best + 1e-5:
+            best, bad = va['primary'], 0
+            best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+            if seq_encoder is not None:
+                best_seq_state = {k: v.detach().clone() for k, v in seq_encoder.state_dict().items()}
+        else:
+            bad += 1
+            if bad >= patience:
+                if verbose:
+                    print(f"  early stop at epoch {ep}")
+                break
+
+    model.load_state_dict(best_state)
+    if seq_encoder is not None:
+        seq_encoder.load_state_dict(best_seq_state)
+    object.__setattr__(model, 'seq_encoder', seq_encoder)  # see run_deepfm_mtl's comment above
+    return model, {'valid': evaluate(uva, yva, predict(Xva_t, Sva_t)),
+                   'test': evaluate(ute, yte, predict(Xte_t, Ste_t))}
