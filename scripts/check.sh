@@ -19,6 +19,7 @@ set -euo pipefail
 python -m pytest tests/ -x
 python src/train.py --config configs/kuairand_pure.yaml --smoke-test
 python scripts/eval_checkpoint.py --checkpoint checkpoints/smoke_test.pt --split valid
+python scripts/eval_checkpoint.py --checkpoint checkpoints/smoke_test.pt --split offpolicy
 python src/train.py --config configs/kuairand_pure_deepfm_mtl_full.yaml --smoke-test
 python scripts/eval_checkpoint.py --checkpoint checkpoints/smoke_test.pt --split valid
 python src/train.py --config configs/kuairand_pure_deepfm_mtl_bpr.yaml --smoke-test

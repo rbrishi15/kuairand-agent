@@ -17,6 +17,24 @@ LABEL = 'long_view'
 FIELDS = ['user_id', 'video_id', 'author_id', 'tab', 'dur_bucket']
 
 
+def _vid2author(data_dir):
+    vid2author = {}
+    with open(os.path.join(data_dir, 'video_features_basic_pure.csv')) as fh:
+        for r in csv.DictReader(fh):
+            vid2author[r['video_id']] = r['author_id']
+    return vid2author
+
+
+def _read_log_rows(path, vid2author):
+    rows = []
+    with open(path) as fh:
+        for r in csv.DictReader(fh):
+            rows.append((int(r['date']), r['user_id'], r['video_id'],
+                         vid2author.get(r['video_id'], 'UNK'), r['tab'],
+                         float(r['duration_ms']), 1 if r[LABEL] != '0' else 0))
+    return rows
+
+
 def load(config):
     """Read logs + video-side features, return a dict sliced by the official split.
 
@@ -27,24 +45,49 @@ def load(config):
     """
     data_dir = config['data_dir']
     splits_cfg = config['splits']
-
-    vid2author = {}
-    with open(os.path.join(data_dir, 'video_features_basic_pure.csv')) as fh:
-        for r in csv.DictReader(fh):
-            vid2author[r['video_id']] = r['author_id']
+    vid2author = _vid2author(data_dir)
 
     rows = []
     for f in ('log_standard_4_08_to_4_21_pure.csv', 'log_standard_4_22_to_5_08_pure.csv'):
-        with open(os.path.join(data_dir, f)) as fh:
-            for r in csv.DictReader(fh):
-                rows.append((int(r['date']), r['user_id'], r['video_id'],
-                             vid2author.get(r['video_id'], 'UNK'), r['tab'],
-                             float(r['duration_ms']), 1 if r[LABEL] != '0' else 0))
+        rows.extend(_read_log_rows(os.path.join(data_dir, f), vid2author))
 
     out = {}
     for name, (lo, hi) in splits_cfg.items():
         out[name] = [x for x in rows if lo <= x[0] <= hi]
     return out
+
+
+def load_random_log(config):
+    """[Rishi] Read the randomized-exposure log into the same row shape as
+    load(), for an off-policy / counterfactual validation set (playbook
+    idea #7) — a genuine check of whether IPS reweighting helps, since the
+    official `valid` split is itself drawn from the same biased policy IPS
+    is trying to correct for and structurally can't reward it.
+
+    Restricted to config['splits']['valid']'s date range, not the full file:
+    log_random_4_22_to_5_08_pure.csv's dates span BOTH the official valid
+    window (4/22-4/28) AND the test window (4/29-5/08). Reading long_view
+    labels from the test-window dates here would be exactly the "hidden
+    test-label access during development" CLAUDE.md §2 forbids, so this is
+    not an optional filter.
+    """
+    data_dir = config['data_dir']
+    lo, hi = config['splits']['valid']
+    vid2author = _vid2author(data_dir)
+
+    rows = []
+    path = os.path.join(data_dir, 'log_random_4_22_to_5_08_pure.csv')
+    with open(path) as fh:
+        for r in csv.DictReader(fh):
+            if r.get('is_rand') != '1':
+                continue
+            d = int(r['date'])
+            if not (lo <= d <= hi):
+                continue
+            rows.append((d, r['user_id'], r['video_id'],
+                         vid2author.get(r['video_id'], 'UNK'), r['tab'],
+                         float(r['duration_ms']), 1 if r[LABEL] != '0' else 0))
+    return rows
 
 
 def subsample_encoded(enc, n=5000, seed=0, extra=None):
