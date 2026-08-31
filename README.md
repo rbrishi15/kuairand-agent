@@ -153,18 +153,52 @@ worth knowing before extending this ablation:
   alignment with the metric isn't enough on its own if the loss sees much
   less data per step.
 
-- **IPS looking flat-to-slightly-worse here doesn't mean it's not working.**
-  `valid` is still drawn from the standard (biased) log, not the
-  random-exposure one — so IPS trades a bit of fit against *that* biased
-  metric for (hopefully) better generalization off the old policy's blind
-  spots, which this validation split can't directly measure. Vidush's
-  `propensity_report()` in `src/features/propensity.py` is the right tool
-  for checking whether the reweighting itself looks sane, independent of
-  whether it moves `valid primary`.
+- **IPS looking flat-to-slightly-worse on `valid` doesn't necessarily mean
+  it's not working** — `valid` is drawn from the standard (biased) log, not
+  the random-exposure one, so it structurally can't reward what IPS is
+  trying to fix. **This was checked, not just asserted** (see off-policy
+  validation below) — and the check did not confirm it either. Take "IPS
+  might help off-policy" as an open question, not a settled one.
 - **The sequence encoder is the slow one** — a real (non-smoke) run takes
   ~50s/epoch vs ~1s/epoch for plain DeepFMMTL, all in the GRU forward/backward
   over padded sequences on CPU. Budget for that before running the seq or
   full ablations again.
+
+## Off-policy validation (playbook idea #7)
+
+`src/data.py`'s `load_random_log(config)` builds a genuinely unbiased
+evaluation set from `log_random_4_22_to_5_08_pure.csv` (uniformly-random
+exposure, not the production policy) — restricted to the official valid
+window's dates only, since that file's date range also spans the test
+window and reading labels from there would be exactly the test-label
+access CLAUDE.md §2 forbids. `scripts/eval_checkpoint.py --split
+offpolicy` scores any checkpoint against it. The motivating question: does
+IPS's cost on the (still-biased) `valid` split actually pay off once
+measured on exposure that isn't biased?
+
+**Answer, from all available seeds — no, not detectably:**
+
+| Variant | offpolicy primary (n seeds) |
+|---|---|
+| DeepFMMTL | 0.3702 ± 0.0006 (n=5) |
+| DeepFMMTL + IPS | 0.3704 ± 0.0007 (n=5) |
+| DeepFMMTL + BPR | 0.3709 ± 0.0011 (n=5) |
+| DeepFMMTL + sequences | 0.3736 ± 0.0005 (n=2) |
+| DeepFMMTL + IPS + sequences | 0.3717 ± 0.0013 (n=2) |
+
+Base vs. +IPS is a 0.0002 gap — **0.29× the combined std, not distinguishable
+from noise.** Worth stating plainly since it contradicts a plausible-sounding
+hypothesis: looking only at seed 0 (base 0.3699 vs. +IPS 0.3711) looked like
+a real win for IPS, the same mistake flagged earlier in this README for the
+`valid`-side ablation. It wasn't, once all 5 seeds were checked. IPS's
+counterfactual benefit remains genuinely unconfirmed either way — not
+proven to help, not proven not to. +sequences again shows the best mean
+(consistent with its `valid` result) but is still only n=2.
+
+Absolute magnitudes here (~0.37) aren't comparable to `valid`'s (~0.60) —
+different label base rate under random exposure — only the *relative*
+ordering between variants, evaluated on the same offpolicy set, is
+meaningful.
 
 ## Submission format
 
