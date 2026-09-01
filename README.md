@@ -432,6 +432,18 @@ row_id,user_id,video_id,score
 rejects header mismatches, row-count mismatches, `row_id` gaps, misaligned
 `(user_id, video_id)`, and non-numeric/NaN/Inf scores.
 
+## Large artifacts (not in git)
+
+Two KuaiRand-1K bonus-run files exceed GitHub's 100MB hard limit and are
+hosted on Drive instead: https://drive.google.com/drive/folders/1gS479mnNW6D4zYvcWMASsrR10VqlXRRi
+
+- `submission_1k.csv` (~115.7MB)
+- `deepfm_mtl_seed0.pt` (~189.7MB) — note this is ~70x the size of the
+  `deepfm_mtl_seed0.pt` already committed under `checkpoints/` (that one
+  is the KuaiRand-Pure run, ~2.7MB). Presumably the 1K-run equivalent, not
+  a duplicate, but the size gap hasn't been root-caused yet — treat as
+  unverified until someone checks what's actually inside it.
+
 ## Limitations & what we'd improve with more time
 
 Written honestly, not as a formality — most of these are already implied
@@ -495,6 +507,7 @@ by results reported above, collected here in one place:
   project was built in, so there's no real "LLM-chosen experiments vs.
   the grid" comparison to report, only a robustness demonstration. That
   comparison is the most interesting unrun experiment in the repo.
+
 
 ## Repo layout
 
