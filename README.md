@@ -411,12 +411,23 @@ binary files themselves, not yet decided.
 
 ### Bonus: KuaiRand-27K
 
-Attempted, not completed. The archive (9.9GB) did not finish downloading
-within this project's time budget, and even a completed download would
-mean training on a dataset roughly 10x KuaiRand-Pure's row count on
-CPU-only hardware — consistent with the playbook's own Day-3 plan calling
-27K the one to skip if time is short ("too large to safely debug in
-remaining time"). No 27K results are reported.
+Downloaded and checksum-verified (9.9GB archive), but training was not
+attempted — a deliberate call once the actual extracted scale was known,
+not a time-ran-out guess:
+
+| | KuaiRand-Pure | KuaiRand-1K | KuaiRand-27K |
+|---|---|---|---|
+| `log_standard_4_08_to_4_21` | 84MB | 373MB | **~10.3GB** (2 parts) |
+| `log_standard_4_22_to_5_08` | 22MB | 492MB | **~14.1GB** (2 parts) |
+
+27K's logs are ~28x 1K's size, and 1K's ~11.7M rows already took ~70s
+just to load (pure-Python `csv.DictReader`, no chunking, in
+`src/data.py`) and ~500s to train a single epoch on CPU. Extrapolating,
+27K is plausibly 250M+ rows — hours to load before training even starts,
+not a feasible CPU-only run in this project's time budget. This confirms,
+with real measurements rather than an assumption, the playbook's own
+Day-3 call to treat 27K as the one to skip if time is short ("too large
+to safely debug in remaining time"). No 27K results are reported.
 
 ## Submission format
 
