@@ -16,6 +16,14 @@ Optional seq_max_len/seq_embed_dim/seq_hidden_dim tune the sequence side
 when use_seq is set (defaults: 50/16/32). Both flags default to false, so
 existing configs are unaffected.
 
+Optional ips_alpha overrides estimate_propensity's Laplace-smoothing
+constant when use_ips is set (default: propensity.py's own _ALPHA=5.0).
+Only meaningful alongside use_ips=true.
+
+hidden_dims/dropout/weight_decay pass straight through to
+run_deepfm_mtl[_bpr] (deep-tower shape, dropout rate, Adam's L2 term) —
+same defaults as before if omitted.
+
 A third flag switches the training objective:
   loss: bpr  -> pairwise BPR (README headroom idea #1) instead of pointwise
                 BCE, via run_deepfm_mtl_bpr. Directly optimizes per-user
@@ -41,10 +49,11 @@ from src.models.deepfm_mtl import run_deepfm_mtl, run_deepfm_mtl_bpr
 MODEL_REGISTRY = {'fm', 'deepfm_mtl'}
 
 
-def _build_ips_weights(config, splits):
+def _build_ips_weights(config, splits, alpha=None):
     from src.features.propensity import estimate_propensity
     random_log_path = os.path.join(config['data_dir'], 'log_random_4_22_to_5_08_pure.csv')
-    return estimate_propensity(splits, random_log_path)['train']
+    kwargs = {} if alpha is None else {'alpha': alpha}
+    return estimate_propensity(splits, random_log_path, **kwargs)['train']
 
 
 def _build_seq_arrays(splits, max_len, embed_dim, hidden_dim):
@@ -75,6 +84,7 @@ def train(config, smoke_test=False, verbose=True):
     seq_max_len = model_cfg.pop('seq_max_len', 50)
     seq_embed_dim = model_cfg.pop('seq_embed_dim', 16)
     seq_hidden_dim = model_cfg.pop('seq_hidden_dim', 32)
+    ips_alpha = model_cfg.pop('ips_alpha', None)
 
     if loss == 'bpr' and use_ips:
         raise ValueError("loss='bpr' + use_ips=true not supported: pairwise IPS "
@@ -87,7 +97,7 @@ def train(config, smoke_test=False, verbose=True):
     extra = {}
 
     if use_ips:
-        extra.setdefault('train', {})['sample_weight'] = _build_ips_weights(config, splits)
+        extra.setdefault('train', {})['sample_weight'] = _build_ips_weights(config, splits, alpha=ips_alpha)
     if use_seq:
         seq_arrays, seq_kwargs = _build_seq_arrays(splits, seq_max_len, seq_embed_dim, seq_hidden_dim)
         for split_name in ('train', 'valid', 'test'):

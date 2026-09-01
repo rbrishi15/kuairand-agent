@@ -100,7 +100,8 @@ class DeepFMMTL(nn.Module):
 
 def run_deepfm_mtl(enc, dim, embed_dim=16, num_fields=5, lr=0.001, epochs=40,
                     bs=8192, patience=4, seed=0, verbose=True,
-                    sample_weight=None, seq_arrays=None, seq_kwargs=None):
+                    sample_weight=None, seq_arrays=None, seq_kwargs=None,
+                    hidden_dims=(64, 32), dropout=0.1, weight_decay=0.0):
     """Mirrors src/models/fm.py's run_fm() shape so train.py can dispatch to
     either symmetrically. CPU by default (CLAUDE.md §3: every model needs a
     CPU code path); uses CUDA only if available, never requires it.
@@ -151,9 +152,10 @@ def run_deepfm_mtl(enc, dim, embed_dim=16, num_fields=5, lr=0.001, epochs=40,
         Sva_t = torch.from_numpy(seq_arrays['valid']).to(device)
         Ste_t = torch.from_numpy(seq_arrays['test']).to(device)
 
-    model = DeepFMMTL(dim, embed_dim=embed_dim, num_fields=num_fields, seq_dim=seq_dim).to(device)
+    model = DeepFMMTL(dim, embed_dim=embed_dim, num_fields=num_fields, seq_dim=seq_dim,
+                       hidden_dims=hidden_dims, dropout=dropout).to(device)
     params = list(model.parameters()) + (list(seq_encoder.parameters()) if seq_encoder else [])
-    opt = torch.optim.Adam(params, lr=lr)
+    opt = torch.optim.Adam(params, lr=lr, weight_decay=weight_decay)
 
     def _set_mode(training):
         model.train(training)
@@ -273,7 +275,8 @@ def _sample_bpr_pairs(all_pos_idx, all_pos_code, neg_by_code, n_pairs, rng):
 
 def run_deepfm_mtl_bpr(enc, dim, embed_dim=16, num_fields=5, lr=0.001, epochs=40,
                         pairs_per_epoch=None, bs=8192, patience=4, seed=0, verbose=True,
-                        seq_arrays=None, seq_kwargs=None):
+                        seq_arrays=None, seq_kwargs=None,
+                        hidden_dims=(64, 32), dropout=0.1, weight_decay=0.0):
     """BPR pairwise variant of run_deepfm_mtl (README "headroom" idea #1:
     pointwise BCE doesn't match GAUC/nDCG, which are ranking metrics). For
     each user with at least one positive AND one negative train impression,
@@ -320,9 +323,10 @@ def run_deepfm_mtl_bpr(enc, dim, embed_dim=16, num_fields=5, lr=0.001, epochs=40
         Sva_t = torch.from_numpy(seq_arrays['valid']).to(device)
         Ste_t = torch.from_numpy(seq_arrays['test']).to(device)
 
-    model = DeepFMMTL(dim, embed_dim=embed_dim, num_fields=num_fields, seq_dim=seq_dim).to(device)
+    model = DeepFMMTL(dim, embed_dim=embed_dim, num_fields=num_fields, seq_dim=seq_dim,
+                       hidden_dims=hidden_dims, dropout=dropout).to(device)
     params = list(model.parameters()) + (list(seq_encoder.parameters()) if seq_encoder else [])
-    opt = torch.optim.Adam(params, lr=lr)
+    opt = torch.optim.Adam(params, lr=lr, weight_decay=weight_decay)
 
     def _set_mode(training):
         model.train(training)
