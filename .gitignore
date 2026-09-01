@@ -8,6 +8,10 @@ __pycache__/
 
 # raw dataset — download via README, don't commit ~200MB of CSVs
 data/raw/*.csv
+# bonus datasets (playbook Day 3: KuaiRand-1K/-27K, ~1.2GB / ~10GB of CSVs
+# renamed to the _pure filenames src/data.py expects) — never commit these
+data/raw_1k/*.csv
+data/raw_27k/*.csv
 data/splits/*
 
 # generated artifacts
@@ -19,6 +23,15 @@ outputs/*.csv
 # guidance) so Sarthak and everyone else can pull real checkpoints
 # straight from the repo instead of retraining ~35 minutes of ablations.
 checkpoints/smoke_test.pt
+
+# checkpoints_1k/ and outputs/submission_1k.csv are NOT covered by the
+# same "small enough for plain git" reasoning above: KuaiRand-1K's much
+# larger embedding table means the checkpoint alone is ~199MB and the
+# generated submission CSV is ~121MB, both over GitHub's 100MB hard
+# per-file limit -- a plain push would be rejected outright. Needs Git
+# LFS or an external release/attachment, not decided yet; regenerate
+# locally via configs/kuairand_1k_deepfm_mtl.yaml (see README).
+checkpoints_1k/
 
 !data/raw/.gitkeep
 !data/splits/.gitkeep
